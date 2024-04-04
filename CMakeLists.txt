@@ -30,7 +30,9 @@ FetchContent_MakeAvailable(lala_core)
 
 # Preparing the library
 
-add_library(lala_octagon INTERFACE)
+add_library(lala_octagon INTERFACE
+        include/lala/octagon.hpp
+        include/lala/util.hpp)
 target_link_libraries(lala_octagon INTERFACE lala_core)
 target_include_directories(lala_octagon INTERFACE include)
 

@@ -18,21 +18,20 @@
 
 namespace lala {
     /** Octagon is an abstract domain built on top of an abstract universe `U`. */
-    template<class U, class Allocator>
+    template<class V, class Allocator>
     class Octagon {
     public:
-        using universe_type = Interval<U>;
-        using local_universe_type = typename universe_type::local_type;
+        using U = typename V::UB;
+        using universe_type = V;
+        using local_universe = typename universe_type::local_type;
         using local_cell_type = typename U::local_type;
         using allocator_type = Allocator;
-        using this_type = Octagon<U, allocator_type>;
-        using universe_list_type = battery::vector<U>;
-        using dbm_type = battery::vector<universe_list_type>;
+        using this_type = Octagon<V, Allocator>;
+        using universe_list_type = battery::vector<U, allocator_type>;
+        using dbm_type = battery::vector<universe_list_type, allocator_type>;
 
-        template<class Alloc>
-        struct snapshot_type {
-        };
-
+        template <class Alloc = allocator_type>
+        using snapshot_type = battery::vector<universe_list_type, Alloc>;
 
         constexpr static const bool is_abstract_universe = false;
         constexpr static const bool sequential = universe_type::sequential;
@@ -116,13 +115,13 @@ namespace lala {
         using ask_type = battery::vector<battery::tuple<int, int, U>, Alloc>; /*TODO just for compile*/
 
 
-        CUDA Octagon(const this_type &other)
+        CUDA Octagon(const this_type& other)
             : atype(other.atype), dbm(other.dbm) {
             init_size();
         }
 
         /** Initialize an empty store. */
-        CUDA Octagon(AType atype, const allocator_type &alloc = allocator_type())
+        CUDA Octagon(AType atype, const allocator_type& alloc = allocator_type())
             : atype(atype), dbm(alloc) {
             init_size();
         }
@@ -394,7 +393,7 @@ namespace lala {
         }
 
         template<class Alloc2, class Mem>
-        CUDA this_type &tell(const tell_type<Alloc2> &t, BInc<Mem> &has_changed) {
+        CUDA this_type& tell(const tell_type<Alloc2>& t, BInc<Mem>& has_changed) {
             DEBUG_PRINT("start tell\n");
             DEBUG_PRINTLN("tell type size %ld\n", t.size());
             dbm.resize(nbVars * 2);
@@ -403,8 +402,9 @@ namespace lala {
                 auto index_line = battery::get<1>(el);
                 auto index_column = battery::get<0>(el);
 
-                if (dbm[index_line].empty())
+                if (dbm[index_line].empty()) {
                     dbm[index_line].resize(nbVars * 2);
+                }
                 dbm[index_line][index_column].tell(battery::get<2>(el), has_changed);
 
                 printf("%d %d \n", index_line, index_column);
@@ -509,7 +509,7 @@ namespace lala {
         }
 
         CUDA universe_type project(AVar x) const {
-            return this[x.vid()];
+            return (*this)[x.vid()];
         }
 
 

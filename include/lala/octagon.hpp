@@ -12,7 +12,6 @@
 #include "lala/logic/logic.hpp"
 #include "lala/universes/primitive_upset.hpp"
 #include "lala/abstract_deps.hpp"
-#include "lala/vstore.hpp"
 #include "lala/interval.hpp"
 #include "lala/logic/env.hpp"
 
@@ -31,7 +30,7 @@ namespace lala {
         using dbm_type = battery::vector<universe_list_type, allocator_type>;
 
         template <class Alloc = allocator_type>
-        using snapshot_type = battery::vector<universe_list_type, Alloc>;
+        using snapshot_type = battery::vector<battery::vector<U, Alloc>, Alloc>;
 
         constexpr static const bool is_abstract_universe = false;
         constexpr static const bool sequential = universe_type::sequential;
@@ -218,13 +217,13 @@ namespace lala {
 
 
             auto constant = right_operand;
-            thrust::optional<const Variable<Allocator> &> var1 = env.variable_of(battery::get<1>(xi).lv());
+            auto var1 = env.variable_of(battery::get<1>(xi).lv());
             if (!var1.has_value()) {
-                RETURN_INTERPRETATION_ERROR("The variable "+xi+" not exists.");
+                RETURN_INTERPRETATION_ERROR("The variable " + xi + " does not exist.");
             }
-            thrust::optional<const Variable<Allocator> &> var2 = env.variable_of(battery::get<1>(xj).lv());
+            auto var2 = env.variable_of(battery::get<1>(xj).lv());
             if (!var2.has_value()) {
-                RETURN_INTERPRETATION_ERROR("The variable "+xj+" not exists.");
+                RETURN_INTERPRETATION_ERROR("The variable " + xj + " does not exist.");
             }
             if (!constant.is_constant()) {
                 RETURN_INTERPRETATION_ERROR("The right operand of the formula must be a constant.");
@@ -246,7 +245,8 @@ namespace lala {
                             if (battery::get<0>(xi) == '-') {
                                 index1 = avari.vid() * 2 + 1;
                                 index2 = avarj.vid() * 2;
-                            } else {
+                            }
+                            else {
                                 index1 = avari.vid() * 2;
                                 index2 = avarj.vid() * 2;
                             }
@@ -255,7 +255,8 @@ namespace lala {
                             if (battery::get<0>(xi) == '-') {
                                 index1 = avari.vid() * 2 + 1;
                                 index2 = avarj.vid() * 2 + 1;
-                            } else {
+                            }
+                            else {
                                 index1 = avari.vid() * 2;
                                 index2 = avarj.vid() * 2 + 1;
                             }
@@ -280,9 +281,9 @@ namespace lala {
             auto xi = f.seq(0);
             auto domain = f.seq(1);
             DEBUG_PRINT("%d \n", domain.is(F::S));
-            thrust::optional<const Variable<Allocator> &> var1 = env.variable_of(xi.lv());
+            auto var1 = env.variable_of(xi.lv());
             if (!var1.has_value()) {
-                RETURN_INTERPRETATION_ERROR("The variable "+xi+" not exists.");
+                RETURN_INTERPRETATION_ERROR("The variable "+ xi +" does not exist.");
             }
             AVar avar1 = var1.value().avar_of(atype).value();
             auto set = domain.s();
@@ -306,12 +307,13 @@ namespace lala {
 
             AVar avar1;
             if (xi.is(F::LV)) {
-                thrust::optional<const Variable<Allocator> &> var1 = env.variable_of(xi.lv());
+                auto var1 = env.variable_of(xi.lv());
                 if (!var1.has_value()) {
-                    RETURN_INTERPRETATION_ERROR("The variable "+xi+" not exists.");
+                    RETURN_INTERPRETATION_ERROR("The variable "+ xi +" does not exist.");
                 }
                 avar1 = var1.value().avar_of(atype).value();
-            } else if (xi.is(F::V)) {
+            }
+            else if (xi.is(F::V)) {
                 avar1 = xi.v();
             }
             if (!constant.is_constant()) {
@@ -407,14 +409,19 @@ namespace lala {
                 }
                 dbm[index_line][index_column].tell(battery::get<2>(el), has_changed);
 
-                printf("%d %d \n", index_line, index_column);
-                battery::get<2>(el).print();
-                printf("\n");
+                // printf("%d %d \n", index_line, index_column);
+                // battery::get<2>(el).print();
+                // printf("\n");
 
-                print_matrix(dbm);
+                // print_matrix(dbm);
             }
 
             DEBUG_PRINT("end tell\n");
+            return *this;
+        }
+
+        CUDA this_type& tell_top() {
+            dbm[0][0].tell_top();
             return *this;
         }
 
@@ -431,7 +438,7 @@ namespace lala {
 
         template<class Mem>
         CUDA this_type &tell(AVar x, const universe_type &dom, BInc<Mem> &has_changed) {
-            dbm[x.vid() * 2][x.vid() * 2 + 1].tell(dom.lb(), has_changed);
+            dbm[x.vid() * 2][x.vid() * 2 + 1].tell(dual<local_cell_type>(dom.lb()), has_changed);
             dbm[x.vid() * 2 + 1][x.vid() * 2].tell(dom.ub(), has_changed);
             return *this;
         }
@@ -522,10 +529,16 @@ namespace lala {
 
         template<class Alloc2 = allocator_type>
         CUDA snapshot_type<Alloc2> snapshot(const Alloc2 &alloc = Alloc2()) const {
+            return snapshot_type<Alloc2>(dbm, alloc);
         }
 
         template<class Alloc2>
         CUDA void restore(const snapshot_type<Alloc2> &snap) {
+            for(int i = 0; i < snap.size(); ++i) {
+                for(int j = 0; j < snap[i].size(); ++j) {
+                    dbm[i][j].dtell(snap[i][j]);
+                }
+            }
         }
 
         /** An abstract element is extractable when it is not equal to top, the refinement is at a fixpoint and the underlying abstract elements are extractable. */
@@ -538,10 +551,14 @@ namespace lala {
          * \pre `is_extractable()` must be `true`. */
         template<class B>
         CUDA void extract(B &ua) const {
+            if((void*)&ua != (void*)this) {
+                ua.dbm = dbm;
+            }
         }
 
         template<class Env>
         CUDA NI TFormula<typename Env::allocator_type> deinterpret(const Env &env) const {
+            return TFormula<typename Env::allocator_type>::make_false();
         }
     };
 }

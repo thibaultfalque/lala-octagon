@@ -12,27 +12,25 @@
 #include "lala/logic/logic.hpp"
 #include "lala/universes/primitive_upset.hpp"
 #include "lala/abstract_deps.hpp"
-#include "lala/vstore.hpp"
 #include "lala/interval.hpp"
 #include "lala/logic/env.hpp"
 
 namespace lala {
   /** Octagon is an abstract domain built on top of an abstract universe `U`. */
-  template<class U, class Allocator>
+  template<class V, class Allocator>
   class Octagon {
   public:
-    using universe_type = Interval<U>;
-    using local_universe_type = typename universe_type::local_type;
+    using U = typename V::UB;
+    using universe_type = V;
+    using local_universe = typename universe_type::local_type;
     using local_cell_type = typename U::local_type;
     using allocator_type = Allocator;
-    using this_type = Octagon<U, allocator_type>;
-    using universe_list_type = battery::vector<U>;
-    using dbm_type = battery::vector<universe_list_type>;
+    using this_type = Octagon<V, Allocator>;
+    using universe_list_type = battery::vector<U, allocator_type>;
+    using dbm_type = battery::vector<universe_list_type, allocator_type>;
 
-    template<class Alloc>
-    struct snapshot_type {
-    };
-
+    template<class Alloc = allocator_type>
+    using snapshot_type = battery::vector<battery::vector<U, Alloc>, Alloc>;
 
     constexpr static const bool is_abstract_universe = false;
     constexpr static const bool sequential = universe_type::sequential;
@@ -51,7 +49,7 @@ namespace lala {
   private:
     AType atype;
     dbm_type dbm;
-    int nbVars = 0;
+    mutable int nbVars = 0;
     long floyd_steps;
     long tight_steps;
     long str_steps;
@@ -220,13 +218,13 @@ namespace lala {
 
 
       auto constant = right_operand;
-      thrust::optional<const Variable<Allocator> &> var1 = env.variable_of(battery::get<1>(xi).lv());
+      auto var1 = env.variable_of(battery::get<1>(xi).lv());
       if (!var1.has_value()) {
-        RETURN_INTERPRETATION_ERROR("The variable "+xi+" not exists.");
+        RETURN_INTERPRETATION_ERROR("The variable " + xi + " does not exist.");
       }
-      thrust::optional<const Variable<Allocator> &> var2 = env.variable_of(battery::get<1>(xj).lv());
+      auto var2 = env.variable_of(battery::get<1>(xj).lv());
       if (!var2.has_value()) {
-        RETURN_INTERPRETATION_ERROR("The variable "+xj+" not exists.");
+        RETURN_INTERPRETATION_ERROR("The variable " + xj + " does not exist.");
       }
       if (!constant.is_constant()) {
         RETURN_INTERPRETATION_ERROR("The right operand of the formula must be a constant.");
@@ -282,9 +280,9 @@ namespace lala {
       auto xi = f.seq(0);
       auto domain = f.seq(1);
       DEBUG_PRINT("%d \n", domain.is(F::S));
-      thrust::optional<const Variable<Allocator> &> var1 = env.variable_of(xi.lv());
+      auto var1 = env.variable_of(xi.lv());
       if (!var1.has_value()) {
-        RETURN_INTERPRETATION_ERROR("The variable "+xi+" not exists.");
+        RETURN_INTERPRETATION_ERROR("The variable "+ xi +" does not exist.");
       }
       AVar avar1 = var1.value().avar_of(atype).value();
       auto set = domain.s();
@@ -308,9 +306,9 @@ namespace lala {
 
       AVar avar1;
       if (xi.is(F::LV)) {
-        thrust::optional<const Variable<Allocator> &> var1 = env.variable_of(xi.lv());
+        auto var1 = env.variable_of(xi.lv());
         if (!var1.has_value()) {
-          RETURN_INTERPRETATION_ERROR("The variable "+xi+" not exists.");
+          RETURN_INTERPRETATION_ERROR("The variable "+ xi +" does not exist.");
         }
         avar1 = var1.value().avar_of(atype).value();
       } else if (xi.is(F::V)) {
@@ -408,21 +406,21 @@ namespace lala {
         if (dbm[index_line].empty()) {
           dbm[index_line].resize(nbVars * 2);
         }
+        dbm[index_line][index_column].tell(battery::get<2>(el), has_changed);
 
-        auto value = battery::get<2>(el);
-        dbm[index_line][index_column].tell(value, has_changed);
-        if (index_line == index_column) {
-          is_at_top.tell(value.ub() < 0, has_changed);
-        }
+        // printf("%d %d \n", index_line, index_column);
+        // battery::get<2>(el).print();
+        // printf("\n");
 
-        printf("%d %d \n", index_line, index_column);
-        value.print();
-        printf("\n");
-
-        print_matrix(dbm);
+        // print_matrix(dbm);
       }
 
       DEBUG_PRINT("end tell\n");
+      return *this;
+    }
+
+    CUDA this_type& tell_top() {
+      dbm[0][0].tell_top();
       return *this;
     }
 
@@ -439,7 +437,7 @@ namespace lala {
 
     template<class Mem>
     CUDA this_type& tell(AVar x, const universe_type& dom, BInc<Mem>& has_changed) {
-      dbm[x.vid() * 2][x.vid() * 2 + 1].tell(dom.lb(), has_changed);
+      dbm[x.vid() * 2][x.vid() * 2 + 1].tell(dual<local_cell_type>(dom.lb()), has_changed);
       dbm[x.vid() * 2 + 1][x.vid() * 2].tell(dom.ub(), has_changed);
       return *this;
     }
@@ -460,12 +458,12 @@ namespace lala {
         size_t k = dim1(i);
         size_t ii = dim2(i);
         size_t j = dim3(i);
-        dbm[ii][j].tell(
+        dbm[i][j].tell(
           U::template fun<ADD>(
-            local_flat(dbm[ii][k]),
-            local_flat(dbm[k][j])),
+          local_flat(dbm[ii][k]),
+          local_flat(dbm[k][j])),
           has_changed);
-        if (ii == j) {
+        if(ii==j) {
           is_at_top.tell(dbm[ii][j].ub() < 0, has_changed);
         }
       } else if (i < tight_steps) {
@@ -495,7 +493,7 @@ namespace lala {
 
     /** `true` if the underlying abstract element is bot and there is no refinement function, `false` otherwise. */
     CUDA local::BDec is_bot() const {
-      if (is_at_top) {
+      if(is_at_top) {
         return false;
       }
       for (int i = 0; i < dbm.size(); i++) {
@@ -516,7 +514,7 @@ namespace lala {
     }
 
     CUDA universe_type project(AVar x) const {
-      return this[x.vid()];
+      return (*this)[x.vid()];
     }
 
 
@@ -529,16 +527,20 @@ namespace lala {
 
     template<class Alloc2 = allocator_type>
     CUDA snapshot_type<Alloc2> snapshot(const Alloc2& alloc = Alloc2()) const {
+      return snapshot_type<Alloc2>(dbm, alloc);
     }
 
     template<class Alloc2>
     CUDA void restore(const snapshot_type<Alloc2>& snap) {
       is_at_top.dtell_bot();
-      for(int i=0;i<snap.size();i++) {
-        dbm[i].clear();
-        dbm[i].resize(snap[i].size());
+      for (int i = 0; i < snap.size(); ++i) {
+        for (int j = 0; j < snap[i].size(); ++j) {
+          dbm[i][j].dtell(snap[i][j]);
+          if(snap[i][j].ub()<0) {
+            is_at_top.tell(true);
+          }
+        }
       }
-
     }
 
     /** An abstract element is extractable when it is not equal to top, the refinement is at a fixpoint and the underlying abstract elements are extractable. */
@@ -551,10 +553,14 @@ namespace lala {
      * \pre `is_extractable()` must be `true`. */
     template<class B>
     CUDA void extract(B& ua) const {
+      if ((void *) &ua != (void *) this) {
+        ua.dbm = dbm;
+      }
     }
 
     template<class Env>
     CUDA NI TFormula<typename Env::allocator_type> deinterpret(const Env& env) const {
+      return TFormula<typename Env::allocator_type>::make_false();
     }
   };
 }

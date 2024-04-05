@@ -11,7 +11,7 @@
       "hidden": true,
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
-        "LALA_PC_BUILD_TESTS": {
+        "LALA_OCTAGON_BUILD_TESTS": {
           "type": "BOOL",
           "value": "ON"
         }

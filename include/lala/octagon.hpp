@@ -16,6 +16,12 @@
 #include "lala/logic/env.hpp"
 
 namespace lala {
+
+  struct NonAtomicExtraction {
+    static constexpr bool atoms = false;
+  };
+
+
   /** Octagon is an abstract domain built on top of an abstract universe `U`. */
   template<class V, class Allocator>
   class Octagon {
@@ -28,7 +34,7 @@ namespace lala {
     using this_type = Octagon<V, Allocator>;
     using universe_list_type = battery::vector<U, allocator_type>;
     using dbm_type = battery::vector<universe_list_type, allocator_type>;
-
+    using memory_type = typename universe_type::memory_type;
     template<class Alloc = allocator_type>
     using snapshot_type = battery::vector<battery::vector<U, Alloc>, Alloc>;
 

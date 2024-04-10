@@ -11,16 +11,12 @@
 
 #include "lala/logic/logic.hpp"
 #include "lala/universes/primitive_upset.hpp"
+#include "lala/vstore.hpp"
 #include "lala/abstract_deps.hpp"
 #include "lala/interval.hpp"
 #include "lala/logic/env.hpp"
 
 namespace lala {
-
-  struct NonAtomicExtraction {
-    static constexpr bool atoms = false;
-  };
-
 
   /** Octagon is an abstract domain built on top of an abstract universe `U`. */
   template<class V, class Allocator>
@@ -469,16 +465,18 @@ namespace lala {
           local_flat(dbm[ii][k]),
           local_flat(dbm[k][j])),
           has_changed);
-        if(ii==j) {
-          is_at_top.tell(dbm[ii][j].ub() < 0, has_changed);
+        if(ii == j) {
+          is_at_top.tell(local::BInc(dbm[ii][j] < 0), has_changed);
         }
-      } else if (i < tight_steps) {
+      }
+      else if (i < tight_steps) {
         size_t index = i % dbm.size();
         size_t index_bar = i ^ 1;
         auto div2 = local_flat(U::template fun<FDIV>(local_flat(dbm[index][index_bar]), local_flat(2)));
         auto value = U::template fun<MUL>(div2, local_flat(2));
         dbm[index][index_bar].tell(value, has_changed);
-      } else {
+      }
+      else {
         auto n_2 = dbm.size() * dbm.size();
         size_t index_i = ((i - tight_steps) % n_2) / dbm.size();
         size_t index_i_bar = index_i ^ 1;
@@ -522,7 +520,6 @@ namespace lala {
     CUDA universe_type project(AVar x) const {
       return (*this)[x.vid()];
     }
-
 
     CUDA size_t vars() const {
       if (dbm.empty()) {

@@ -20,7 +20,7 @@ using F = TFormula<standard_allocator>;
 using zi = local::ZInc;
 using zd = local::ZDec;
 using Itv = Interval<zi>;
-using Oct = Octagon<zd, standard_allocator>;
+using Oct = Octagon<Itv, standard_allocator>;
 
 template <class L>
 void test_extract(const L& oct, bool is_ua) {
@@ -91,6 +91,6 @@ TEST(OctagonTest, TransivityTemporalConstraint) {
 
 
 TEST(OctagonTest,is_bot) {
-  auto oct = Octagon<zd,standard_allocator>::bot();
+  auto oct = Octagon<Itv, standard_allocator>::bot();
   ASSERT_TRUE(oct.is_bot());
 }

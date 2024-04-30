@@ -11,6 +11,8 @@
 
 #include "lala/universes/primitive_upset.hpp"
 #include "lala/fixpoint.hpp"
+#include "lala/interval.hpp"
+#include "lala/logic/algorithm.hpp"
 
 using namespace lala;
 using namespace battery;

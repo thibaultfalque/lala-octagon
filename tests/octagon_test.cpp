@@ -96,3 +96,18 @@ TEST(OctagonTest,is_bot) {
   auto oct = Octagon<Itv, standard_allocator>::bot();
   ASSERT_TRUE(oct.is_bot());
 }
+
+TEST(OctagonTest,deinterpret) {
+  VarEnv<standard_allocator> env;
+  IDiagnostics diagnostics;
+
+  Oct oct = create_and_interpret_and_tell<Oct>("var 0..10: x; var 0..10: y;\
+    constraint int_le(int_plus(x, y), 5);",env);
+  auto f = oct.deinterpret(env);
+  printf("**********************\n");
+  f.print(false);
+  printf("**********************\n");
+
+  Oct oct2 = create_and_interpret_and_tell<Oct>(f, env,diagnostics);
+
+}

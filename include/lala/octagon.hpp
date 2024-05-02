@@ -399,7 +399,9 @@ namespace lala {
       }
       auto left_operand = local_f.seq(0);
       battery::tuple<char, F> xit;
-      auto result = var_with_symbol<diagnose, F>(left_operand.seq(0), diagnostics, xit);
+      local_f.print();
+      printf("\n");
+      auto result = var_with_symbol<diagnose, F>(left_operand, diagnostics, xit);
       if (!result) {
         return false;
       }
@@ -478,6 +480,7 @@ namespace lala {
     template<IKind kind, bool diagnose = false, class F, class Env, class I>
     CUDA NI bool interpret(const F& f, Env& env, I& intermediate, IDiagnostics& diagnostics) const {
       DEBUG_PRINT("start interpret octogon\n");
+
       if constexpr (kind == IKind::TELL) {
         return interpret_tell(f, env, intermediate, diagnostics);
       }
@@ -600,8 +603,13 @@ namespace lala {
     }
 
     CUDA universe_type operator[](int x) const {
-      return universe_type(typename universe_type::LB(dbm[x * 2][x * 2 + 1]),
+      using local_flat = typename U::template flat_type<battery::local_memory>;
+      printf("/////////// %d %d\n",x*2,x*2+1);
+      dbm[x * 2][x * 2 + 1].print();
+      printf("///////////////////\n");
+      auto result= universe_type(typename universe_type::LB(dbm[x * 2][x * 2 + 1]),
                            typename universe_type::UB(dbm[x * 2 + 1][x * 2]));
+      return result;
     }
 
     CUDA universe_type project(AVar x) const {
@@ -650,6 +658,10 @@ namespace lala {
 
     template<class Env>
     CUDA NI TFormula<typename Env::allocator_type> deinterpret(const Env& env) const {
+
+      print_matrix(dbm);
+
+
       using F = TFormula<typename Env::allocator_type>;
       typename F::Sequence seq{env.get_allocator()};
       using local_flat = typename U::template flat_type<battery::local_memory>;
@@ -662,40 +674,52 @@ namespace lala {
         AVar v(aty(), i);
         seq.push_back(F::make_exists(aty(), env.name_of(v), env.sort_of(v)));
 
-        auto index = v.vid() * 2;
-        auto index_bar = v.vid() * 2 + 1;
-        auto div2 = local_flat(U::template fun<FDIV>(local_flat(dbm[index][index_bar]), local_flat(2)));
+        auto p = project(v);
+
+        auto lb = p.lb().value();
+        auto ub = p.ub().value();
+
+        auto div2_lb = local_flat(U::template fun<FDIV>(local_flat(lb), local_flat(2)));
+        auto div2_ub = local_flat(U::template fun<FDIV>(local_flat(ub), local_flat(2)));
 
 
-        if (div2 < 0) {
-          div2 = U::template fun<MUL>(local_flat(div2), local_flat(-1));
+        if (div2_lb < 0) {
+          div2_lb = U::template fun<MUL>(local_flat(div2_lb), local_flat(-1));
         }
 
+        if (div2_ub < 0) {
+          div2_ub = U::template fun<MUL>(local_flat(div2_ub), local_flat(-1));
+        }
 
-        seq.push_back(F::make_binary(env.name_of(v), LEQ, F::make_z(div2)));
-        seq.push_back(F::make_binary(env.name_of(v), GEQ, F::make_z(div2)));
+        auto var = F::make_lvar(aty(),env.name_of(v));
+        seq.push_back(F::make_binary(var, GEQ, F::make_z(div2_lb)));
+        seq.push_back(F::make_binary(var, LEQ, F::make_z(div2_ub)));
       }
 
 
       for (int i = 0; i < dbm.size(); i++) {
         for (int j = 0; j < dbm[i].size(); j++) {
           if (i != j && !dbm[i][j].is_bot()) {
-            AVar v1(aty(), i);
-            AVar v2(aty(), j);
-
-            Sig arithmSymb = ADD;
-            if (i % 2 != 0) {
-              arithmSymb = SUB;
+            AVar v1(aty(), i%2!=0?(i-1)/2:i/2);
+            AVar v2(aty(), j%2!=0?(j-1)/2:j/2);
+            if(v1==v2) {
+              continue;
             }
 
+            Sig arithmSymb = ADD;
+            if (i % 2 == 0) {
+              arithmSymb = SUB;
+            }
+            auto var1 = F::make_lvar(aty(),env.name_of(v1));
+            auto var2 = F::make_lvar(aty(),env.name_of(v2));
 
-            if (j % 2 != 0) {
-              seq.push_back(F::make_binary(F::make_binary(env.name_of(v2), arithmSymb, env.name_of(v1)), LEQ,
+            if (j % 2 == 0) {
+              seq.push_back(F::make_binary(F::make_binary(var2, arithmSymb, var1), LEQ,
                                            F::make_z(dbm[i][j])));
             }
             else {
               seq.push_back(F::make_binary(
-                F::make_binary(F::make_unary(NEG, env.name_of(v2)), arithmSymb, env.name_of(v1)), LEQ,
+                F::make_binary(F::make_unary(NEG, var2), arithmSymb, var1), LEQ,
                 F::make_z(dbm[i][j])));
             }
           }

@@ -550,7 +550,7 @@ namespace lala {
         size_t k = dim1(i);
         size_t ii = dim2(i);
         size_t j = dim3(i);
-        dbm[i][j].tell(
+        dbm[ii][j].tell(
           U::template fun<ADD>(
             local_flat(dbm[ii][k]),
             local_flat(dbm[k][j])),
@@ -561,7 +561,7 @@ namespace lala {
       }
       else if (i < tight_steps) {
         size_t index = i % dbm.size();
-        size_t index_bar = i ^ 1;
+        size_t index_bar = index ^ 1;
         auto div2 = local_flat(U::template fun<FDIV>(local_flat(dbm[index][index_bar]), local_flat(2)));
         auto value = U::template fun<MUL>(div2, local_flat(2));
         dbm[index][index_bar].tell(value, has_changed);
@@ -604,9 +604,7 @@ namespace lala {
 
     CUDA universe_type operator[](int x) const {
       using local_flat = typename U::template flat_type<battery::local_memory>;
-      printf("/////////// %d %d\n",x*2,x*2+1);
       dbm[x * 2][x * 2 + 1].print();
-      printf("///////////////////\n");
       auto result= universe_type(typename universe_type::LB(dbm[x * 2][x * 2 + 1]),
                            typename universe_type::UB(dbm[x * 2 + 1][x * 2]));
       return result;

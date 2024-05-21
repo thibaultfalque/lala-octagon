@@ -61,7 +61,7 @@ void refine_and_test(L& oct, int num_refine, const std::vector<Itv>& before_afte
 // x + y <= 5
 TEST(OctagonTest, TemporalConstraint1) {
   Oct oct = create_and_interpret_and_tell<Oct>("var 0..10: x; var 0..10: y; constraint int_le(int_plus(x, y), 5);");
-//  refine_and_test(oct, 1, {Itv(0,10), Itv(0,10)}, {Itv(0,5), Itv(0,5)}, true);
+  refine_and_test(oct, 1, {Itv(0,10), Itv(0,10)}, {Itv(0,5), Itv(0,5)}, true);
 }
 // -x + y <= 5
 TEST(OctagonTest, TemporalConstraint2) {
@@ -77,8 +77,16 @@ TEST(OctagonTest, IctaiConstraints) {
 
 // x <= 5
 TEST(OctagonTest, UnaryConstraint1) {
-  Oct oct = create_and_interpret_and_tell<Oct>("var 0..10: x; constraint int_le(x, 5);");
-  refine_and_test(oct, 8, {Itv(0,10)}, {Itv(0,5)}, true);
+  VarEnv<standard_allocator> env;
+  IDiagnostics diagnostics;
+  battery::vector<battery::tuple<int, int, Itv::UB>, standard_allocator> intermediate;
+  Oct oct = create_and_interpret_and_tell<Oct>("var 0..10: x;",env);
+  refine_and_test(oct, 14, {Itv(0,10)}, {Itv(0,10)}, true);
+
+  auto f = parse_flatzinc_str<standard_allocator>("constraint int_le(x, 5);");
+  oct.interpret<IKind::TELL>(*f,env,intermediate,diagnostics);
+  oct.tell(intermediate);
+  refine_and_test(oct, 14, {Itv(0,5)}, {Itv(0,5)}, true);
 }
 
 
@@ -104,10 +112,8 @@ TEST(OctagonTest,deinterpret) {
   Oct oct = create_and_interpret_and_tell<Oct>("var 0..10: x; var 0..10: y;\
     constraint int_le(int_plus(x, y), 5);",env);
   auto f = oct.deinterpret(env);
-  printf("**********************\n");
-  f.print(false);
-  printf("**********************\n");
-
-  Oct oct2 = create_and_interpret_and_tell<Oct>(f, env,diagnostics);
-
+  VarEnv<standard_allocator> env2;
+  auto oct2 = create_and_interpret_and_tell<Oct>(f,env2,diagnostics);
+  EXPECT_TRUE(oct2.has_value());
+  EXPECT_EQ(oct2->deinterpret(env2),f);
 }

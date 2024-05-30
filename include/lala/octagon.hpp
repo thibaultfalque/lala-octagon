@@ -593,7 +593,7 @@ namespace lala {
 
     template<class Mem>
     CUDA void refine(size_t i, BInc<Mem>& has_changed) {
-      print_matrix(dbm);
+      //print_matrix(dbm);
       using local_flat = typename U::template flat_type<battery::local_memory>;
 
       // for(int i=0;i<dbm.size();i++){
@@ -641,7 +641,7 @@ namespace lala {
           local_flat(dbm[index_j_bar][index_j])));
         dbm[index_i][index_j].tell(U::template fun<FDIV>(add, local_flat(2)));
       }
-      print_matrix(dbm);
+      //print_matrix(dbm);
     }
 
     /** `true` if the underlying abstract element is top, `false` otherwise. */
@@ -736,7 +736,7 @@ namespace lala {
 
 
     CUDA void print() const {
-      print_matrix(dbm);
+      //print_matrix(dbm);
     }
 
 

@@ -386,8 +386,6 @@ namespace lala {
     template<bool diagnose = false, class F, class Env, class Alloc2>
     CUDA NI bool interpret_tell_in(const F& f, Env& env, tell_type<Alloc2>& tell, IDiagnostics& diagnostics) const {
       DEBUG_PRINT("interpret_tell_in\n");
-      f.print();
-      printf("\n");
       auto xi = f.seq(0);
       auto domain = f.seq(1);
       DEBUG_PRINT("%d \n", domain.is(F::S));
@@ -422,8 +420,6 @@ namespace lala {
       auto left_operand = local_f.seq(0);
       left_operand.type_as(aty());
       battery::tuple<char, F> xit;
-      local_f.print();
-      printf("\n");
       auto result = var_with_symbol<diagnose, F>(left_operand, diagnostics, xit);
       if (!result) {
         return false;
@@ -432,9 +428,6 @@ namespace lala {
       auto constant = local_f.seq(1);
 
       AVar avar1;
-      printf("*****************");
-      xi.print();
-      printf("*****************\n");
       if (xi.is(F::LV)) {
         auto var1 = env.variable_of(xi.lv());
         if (!var1.has_value()) {
@@ -510,15 +503,6 @@ namespace lala {
     template<IKind kind, bool diagnose = false, class F, class Env, class I>
     CUDA NI bool interpret(const F& f, Env& env, I& intermediate, IDiagnostics& diagnostics) const {
       DEBUG_PRINT("start interpret octogon\n");
-      printf("************************");
-      f.print();
-      printf("************************\n");
-
-      printf("************************");
-      f.print(false);
-      printf("************************\n");
-
-
       if constexpr (kind == IKind::TELL) {
         return interpret_tell(f, env, intermediate, diagnostics);
       }

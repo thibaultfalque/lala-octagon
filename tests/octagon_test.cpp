@@ -99,7 +99,7 @@ TEST(OctagonTest, IncrementallyClosingOctagonPaper) {
   battery::vector<battery::tuple<int, int, Itv::UB>, standard_allocator> intermediate;
   Oct oct = create_and_interpret_and_tell<Oct>("var -inf..3: x0; var -inf..2: x1; constraint int_le(int_plus(x0,x1),6);constraint int_le(int_plus(x0,x1),6);constraint int_le(int_minus(int_neg(x0),x1),5); constraint int_le(int_neg(x0),3);",env);
   oct.print();
-  refine_and_test(oct, 64, {Itv(0,10)}, {Itv(0,10)}, true);
+  refine_and_test(oct, 84, {Itv(0,10)}, {Itv(0,10)}, true);
   oct.print();
 
   // auto f = parse_flatzinc_str<standard_allocator>("constraint int_le(x, 5);");
@@ -133,29 +133,38 @@ TEST(OctagonTest,deinterpret) {
 
   Oct oct = create_and_interpret_and_tell<Oct>("var 0..10: x; var 0..10: y;\
     constraint int_le(int_plus(x, y), 5);",env);
+  printf("Oct : \n");
   oct.print();
   printf("\n");
+
   auto f = oct.deinterpret(env);
+  printf("f (deinterpret formula from oct) : \n");
   f.print(false);
   printf("\n");
+
   GaussSeidelIteration{}.fixpoint(oct);
-  printf("\noct après des \n");
+  printf("\noct after refine \n");
   oct.print();
-  printf("\nf après des \n");
+  printf("\nf2 (deinterpret formula from refine oct ) \n");
   auto f2 = oct.deinterpret(env);
   f2.print(false);
 
   VarEnv<standard_allocator> env2;
   auto oct2 = create_and_interpret_and_tell<Oct>(f,env2,diagnostics);
   EXPECT_TRUE(oct2.has_value());
+  printf("\noct2 (from intepretation of the formula f) \n");
   oct2.value().print();
   printf("\n");
   EXPECT_EQ(oct2->deinterpret(env2),f);
+  printf("\ndeinterpret formula from oct2\n");
   oct2->deinterpret(env2).print(false);
   printf("\n");
 
 
   VarEnv<standard_allocator> env3;
   auto oct3 = create_and_interpret_and_tell<Oct>(f2,env3,diagnostics);
+  printf("\ndeinterpret formula from refine oct3 ) \n");
+  oct3->print();
+  oct3->deinterpret(env3).print(false);
   EXPECT_EQ(oct3->deinterpret(env3),f2);
 }

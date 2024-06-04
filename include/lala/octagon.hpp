@@ -196,7 +196,7 @@ namespace lala {
       battery::tuple<int, int> indexes;
       index_for_var(symbol_x, x, indexes);
 
-      tell.emplace_back(battery::make_tuple(battery::get<1>(indexes), battery::get<0>(indexes), u));
+      tell.emplace_back(battery::make_tuple(battery::get<0>(indexes), battery::get<1>(indexes), u));
       return true;
     }
 
@@ -652,8 +652,8 @@ namespace lala {
 
     CUDA universe_type operator[](int x) const {
       using local_flat = typename U::template flat_type<battery::local_memory>;
-      auto result = universe_type(typename universe_type::LB(dbm[x * 2][x * 2 + 1]),
-                                  typename universe_type::UB(dbm[x * 2 + 1][x * 2]));
+      auto result = universe_type(typename universe_type::LB(dbm[x * 2+1][x * 2]),
+                                  typename universe_type::UB(dbm[x * 2][x * 2+1]));
 
       auto lb = result.lb().value();
       auto ub = result.ub().value();
@@ -720,7 +720,7 @@ namespace lala {
 
 
     CUDA void print() const {
-      //print_matrix(dbm);
+      print_matrix(dbm);
     }
 
 
@@ -759,21 +759,21 @@ namespace lala {
               continue;
             }
 
-            Sig arithmSymb = ADD;
+            Sig arithmSymb = SUB;
             if (i % 2 == 0) {
-              arithmSymb = SUB;
+              arithmSymb = ADD;
             }
             auto var1 = F::make_lvar(aty(), env.name_of(v1));
             auto var2 = F::make_lvar(aty(), env.name_of(v2));
 
-            if (j % 2 == 0) {
+            if (j % 2 != 0) {
               seq.push_back(F::make_binary(F::make_binary(var2, arithmSymb, var1, aty()), LEQ,
                                            F::make_z(dbm[i][j]), aty()));
             }
             else {
               seq.push_back(F::make_binary(
                 F::make_binary(F::make_unary(NEG, var2, aty()), arithmSymb, var1, aty()), LEQ,
-                F::make_z(dbm[i][j]), aty()));
+                F::make_z(dbm[j][i]), aty()));
             }
           }
         }

@@ -218,8 +218,8 @@ namespace lala {
       tmp.type_as(aty());
       local_cell_type::template interpret_tell<diagnose>(F::make_binary(tmp, LEQ, constant, aty()), env, u,
                                                          diagnostics);
-      tell.emplace_back(battery::make_tuple(index2, index1, u));
-      tell.emplace_back(battery::make_tuple(index4, index3, u));
+      tell.emplace_back(battery::make_tuple(index1, index2, u));
+      tell.emplace_back(battery::make_tuple(index3, index4, u));
       return true;
     }
 
@@ -520,8 +520,8 @@ namespace lala {
       init_size();
       for (int i = 0; i < t.size(); i++) {
         auto el = t[i];
-        auto index_line = battery::get<1>(el);
-        auto index_column = battery::get<0>(el);
+        auto index_line = battery::get<0>(el);
+        auto index_column = battery::get<1>(el);
 
         if (dbm[index_line].empty()) {
           dbm[index_line].resize(nbVars * 2);
@@ -560,8 +560,8 @@ namespace lala {
     CUDA local::BInc ask(const ask_type<Alloc2>& t) const {
       for (int i = 0; i < t.size(); i++) {
         auto el = t[i];
-        auto index_line = battery::get<1>(el);
-        auto index_column = battery::get<0>(el);
+        auto index_line = battery::get<0>(el);
+        auto index_column = battery::get<1>(el);
         auto value = battery::get<2>(el);
 
         if (dbm[index_line][index_column] != value) {

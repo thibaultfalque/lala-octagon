@@ -17,7 +17,6 @@
 #include "lala/logic/env.hpp"
 
 namespace lala {
-
   /** Octagon is an abstract domain built on top of an abstract universe `U`. */
   template<class V, class Allocator>
   class Octagon {
@@ -33,6 +32,11 @@ namespace lala {
     using memory_type = typename universe_type::memory_type;
     template<class Alloc = allocator_type>
     using snapshot_type = battery::vector<battery::vector<U, Alloc>, Alloc>;
+    template<class Alloc>
+    using tell_type = battery::vector<battery::tuple<int, int, U>, Alloc>;
+
+    template<class Alloc>
+    using ask_type = tell_type<Alloc>;
 
     constexpr static const bool is_abstract_universe = false;
     constexpr static const bool sequential = universe_type::sequential;
@@ -52,10 +56,10 @@ namespace lala {
     AType atype;
     dbm_type dbm;
     mutable int nbVars = 0;
-    long floyd_steps;
-    long tight_steps;
-    long str_steps;
-    long _num_refinements;
+    long floyd_steps = 0;
+    long tight_steps = 0;
+    long str_steps = 0;
+    long _num_refinements = 0;
     BInc<memory_type> is_at_top;
 
     enum FormulaEnum {
@@ -96,10 +100,70 @@ namespace lala {
         return true;
       }
       if (f.is(F::Seq) && f.seq().size() == 1 && f.sig() == NEG) {
-        result = battery::make_tuple('-', f.seq(0));
+        auto var = f.seq(0);
+        var.type_as(aty());
+        result = battery::make_tuple('-', var);
         return true;
       }
       RETURN_INTERPRETATION_ERROR("There is an error when we interpret a variable formula");
+    }
+
+    bool index_for_vars(const char symbol_of_var, const AVar& avari, Sig& arith_op, const AVar& avarj,
+                        battery::tuple<int, int,int,int>& result) const {
+      int index1 = -1;
+      int index2 = -1;
+      int index3 = -1;
+      int index4 = -1;
+      switch (arith_op) {
+        case SUB:
+          if (symbol_of_var == '-') {
+            index1 = avari.vid() * 2 + 1;
+            index2 = avarj.vid() * 2;
+            index3 = avarj.vid()*2+1;
+            index4 = avari.vid()*2;
+          }
+          else {
+            index1 = avari.vid() * 2;
+            index2 = avarj.vid() * 2;
+            index3 = index2+1;
+            index4 = index1+1;
+          }
+          break;
+        case ADD:
+          if (symbol_of_var == '-') {
+            index1 = avari.vid() * 2 + 1;
+            index2 = avarj.vid() * 2 + 1;
+            index3 = avarj.vid() * 2;
+            index4 = avari.vid() * 2;
+          }
+          else {
+            index1 = avari.vid() * 2;
+            index2 = avarj.vid() * 2 + 1;
+            index3 = index2 - 1;
+            index4 = index1 + 1;
+          }
+          break;
+        default:
+          return false;
+      }
+      result = battery::make_tuple(index1, index2,index3,index4);
+      return index1 != -1 && index2 != -1;
+    }
+
+
+    void index_for_var(const char symbol_of_var, const AVar& avari, battery::tuple<int, int>& result) const {
+      int index1 = -1;
+      int index2 = -1;
+      if (symbol_of_var == '-') {
+        index1 = avari.vid() * 2 + 1;
+        index2 = avari.vid() * 2;
+      }
+      else {
+        index1 = avari.vid() * 2;
+        index2 = avari.vid() * 2 + 1;
+      }
+      assert(index1>=0 && index2>=0);
+      result = battery::make_tuple(index1, index2);
     }
 
     void init_size() {
@@ -109,16 +173,59 @@ namespace lala {
       _num_refinements = str_steps;
     }
 
+    template<bool diagnose = false, class F, class Env, class Alloc2>
+    CUDA NI bool interpret_tell_x_op_k(char symbol_x, const AVar& x, const Sig op, const F& constant, Env& env,
+                                       tell_type<Alloc2>& tell,
+                                       IDiagnostics& diagnostics) const {
+      assert(!x.is_untyped());
+      local_cell_type u;
+      auto tmp = F::make_avar(AVar{});
+      tmp.type_as(aty());
+      if (constant.is(F::Z)) {
+        logic_int k = constant.z() * 2;
+        U::template interpret_tell<diagnose>(F::make_binary(tmp, op, F::make_z(k), aty()), env, u,
+                                             diagnostics);
+      }
+      else {
+        logic_real k = battery::make_tuple(battery::mul_down(battery::get<0>(constant.r()), 2.0),
+                                           battery::mul_up(battery::get<1>(constant.r()), 2.0));
+        U::template interpret_tell<diagnose>(F::make_binary(tmp, op, F::make_real(k), aty()), env, u,
+                                             diagnostics);
+      }
+
+      battery::tuple<int, int> indexes;
+      index_for_var(symbol_x, x, indexes);
+
+      tell.emplace_back(battery::make_tuple(battery::get<0>(indexes), battery::get<1>(indexes), u));
+      return true;
+    }
+
+    template<bool diagnose = false, class F, class Env, class Alloc2>
+    CUDA NI bool interpret_tell_x_y_op_k(const F& f, const char symbol_x, const AVar& x, Sig arithm_sig, const AVar& y,
+                                         const F& constant, Env& env, tell_type<Alloc2>& tell,
+                                         IDiagnostics& diagnostics) const {
+      battery::tuple<int, int, int, int> index_tuple;
+      if (!index_for_vars(symbol_x, x, arithm_sig, y, index_tuple)) {
+        RETURN_INTERPRETATION_ERROR("Octagons only handle + or - as arithmetic symbols.");
+      }
+      int index1 = battery::get<0>(index_tuple);
+      int index2 = battery::get<1>(index_tuple);
+      int index3 = battery::get<2>(index_tuple);
+      int index4 = battery::get<3>(index_tuple);
+
+      local_cell_type u;
+      auto tmp = F::make_avar(AVar{});
+      tmp.type_as(aty());
+      local_cell_type::template interpret_tell<diagnose>(F::make_binary(tmp, LEQ, constant, aty()), env, u,
+                                                         diagnostics);
+      tell.emplace_back(battery::make_tuple(index1, index2, u));
+      tell.emplace_back(battery::make_tuple(index3, index4, u));
+      return true;
+    }
+
   public:
-    template<class Alloc>
-    using tell_type = battery::vector<battery::tuple<int, int, U>, Alloc>;
-
-    template<class Alloc>
-    using ask_type = battery::vector<battery::tuple<int, int, U>, Alloc>; /*TODO just for compile*/
-
-
     CUDA Octagon(const this_type& other)
-      : atype(other.atype), dbm(other.dbm), is_at_top(other.is_at_top) {
+      : atype(other.atype), dbm(other.dbm), is_at_top(other.is_at_top), nbVars(other.nbVars) {
       init_size();
     }
 
@@ -135,13 +242,13 @@ namespace lala {
 
     template<class R>
     CUDA Octagon(const Octagon<R, allocator_type>& other)
-      : atype(other.atype), dbm(other.dbm), is_at_top(other.is_at_top) {
+      : atype(other.atype), dbm(other.dbm), is_at_top(other.is_at_top), nbVars(other.nbVars) {
       init_size();
     }
 
     template<class R, class Alloc2>
     CUDA Octagon(const Octagon<R, Alloc2>& other, const allocator_type& alloc = allocator_type())
-      : atype(other.atype), dbm(other.dbm, alloc), is_at_top(other.is_at_top) {
+      : atype(other.atype), dbm(other.dbm, alloc), is_at_top(other.is_at_top), nbVars(other.nbVars) {
       init_size();
     }
 
@@ -153,7 +260,8 @@ namespace lala {
       init_size();
     }
 
-    CUDA Octagon(this_type&& other): atype(other.atype), dbm(std::move(other.dbm)), is_at_top(other.is_at_top) {
+    CUDA Octagon(this_type&& other): atype(other.atype), dbm(std::move(other.dbm)), is_at_top(other.is_at_top),
+                                     nbVars(other.nbVars) {
       init_size();
     }
 
@@ -173,6 +281,9 @@ namespace lala {
     /** A special symbolic element representing top. */
     CUDA static this_type top(AType atype = UNTYPED,
                               const allocator_type& alloc = allocator_type()) {
+      auto oct = Octagon(atype, alloc);
+      oct->dbm[0][0] = -1;
+      return oct;
     }
 
     template<class Env>
@@ -185,6 +296,8 @@ namespace lala {
     template<class Env>
     CUDA static this_type top(Env& env,
                               const allocator_type& alloc = allocator_type()) {
+      AType atype = env.extends_abstract_dom();
+      return top(atype, alloc);
     }
 
 
@@ -193,6 +306,7 @@ namespace lala {
                                             IDiagnostics& diagnostics) const {
       DEBUG_PRINT("start\n");
       AVar avar;
+      avar.type_as(aty());
       auto result = env.template interpret<diagnose>(f.map_atype(aty()), avar, diagnostics);
       DEBUG_PRINT("end\n");
       return result;
@@ -218,7 +332,6 @@ namespace lala {
         return false;
       }
 
-
       auto constant = right_operand;
       auto var1 = env.variable_of(battery::get<1>(xi).lv());
       if (!var1.has_value()) {
@@ -234,51 +347,45 @@ namespace lala {
       AVar avari = var1.value().avar_of(atype).value();
       AVar avarj = var2.value().avar_of(atype).value();
       local_cell_type u;
-      int index1 = -1;
-      int index2 = -1;
-      auto tmp = F::make_avar(AVar{});
 
-      local_cell_type::template interpret_tell<diagnose>(F::make_binary(tmp, f.sig(), constant), env, u,
-                                                         diagnostics);
 
       switch (f.sig()) {
         case LEQ:
-          switch (f.seq(0).sig()) {
-            case SUB:
-              if (battery::get<0>(xi) == '-') {
-                index1 = avari.vid() * 2 + 1;
-                index2 = avarj.vid() * 2;
-              } else {
-                index1 = avari.vid() * 2;
-                index2 = avarj.vid() * 2;
-              }
-              break;
-            case ADD:
-              if (battery::get<0>(xi) == '-') {
-                index1 = avari.vid() * 2 + 1;
-                index2 = avarj.vid() * 2 + 1;
-              } else {
-                index1 = avari.vid() * 2;
-                index2 = avarj.vid() * 2 + 1;
-              }
-              break;
-            default:
-              RETURN_INTERPRETATION_ERROR("Octagons only handle + and - arithmitic symbols.");
+        case LT:
+          return interpret_tell_x_y_op_k(f, battery::get<0>(xi), avari, f.seq(0).sig(), avarj, constant, env, tell,
+                                         diagnostics);
+        case GEQ:
+        case GT: {
+          auto symbol_x = battery::get<0>(xi) == '-' ? '+' : '-';
+          auto arithm_symb = f.seq(0).sig() == ADD ? SUB : ADD;
+
+          if (constant.is(F::Z)) {
+            logic_int k = constant.z() * -1;
+            return interpret_tell_x_y_op_k<diagnose>(f, symbol_x, avari, arithm_symb, avarj, F::make_z(k), env, tell,
+                                                     diagnostics);
           }
-          break;
+          else {
+            logic_real k = battery::make_tuple(battery::mul_down(battery::get<0>(constant.r()), -1.0),
+                                               battery::mul_up(battery::get<1>(constant.r()), -1.0));
+            return interpret_tell_x_y_op_k<diagnose>(f, symbol_x, avari, arithm_symb, avarj, F::make_real(k), env, tell,
+                                                     diagnostics);
+          }
+        }
+        case EQ: {
+          auto geq_formula = F::make_binary(f.seq(0), GEQ, constant, aty());
+          return interpret_tell_x_y_op_k<diagnose>(f, battery::get<0>(xi), avari, f.seq(0).sig(), avarj, constant, env,
+                                                   tell,
+                                                   diagnostics) && interpret_tell_binary(
+                   geq_formula, env, tell, diagnostics);
+        }
         default:
           RETURN_INTERPRETATION_ERROR("Octagons only handle <= symbols at the moment.");
       }
-      tell.emplace_back(battery::make_tuple(index1, index2, u));
-      DEBUG_PRINT("end\n");
-      return true;
     }
 
     template<bool diagnose = false, class F, class Env, class Alloc2>
     CUDA NI bool interpret_tell_in(const F& f, Env& env, tell_type<Alloc2>& tell, IDiagnostics& diagnostics) const {
       DEBUG_PRINT("interpret_tell_in\n");
-      f.print();
-      printf("\n");
       auto xi = f.seq(0);
       auto domain = f.seq(1);
       DEBUG_PRINT("%d \n", domain.is(F::S));
@@ -287,12 +394,13 @@ namespace lala {
         RETURN_INTERPRETATION_ERROR("The variable "+ xi +" does not exist.");
       }
       AVar avar1 = var1.value().avar_of(atype).value();
+      avar1.type_as(aty());
       auto set = domain.s();
       auto lb = battery::get<0>(set[0]);
       auto ub = battery::get<1>(set[set.size() - 1]);
 
-      interpret_tell_unary(F::make_binary(F::make_avar(avar1), GEQ, lb), env, tell, diagnostics);
-      interpret_tell_unary(F::make_binary(F::make_avar(avar1), LEQ, ub), env, tell, diagnostics);
+      interpret_tell_unary(F::make_binary(F::make_avar(avar1), GEQ, lb, aty()), env, tell, diagnostics);
+      interpret_tell_unary(F::make_binary(F::make_avar(avar1), LEQ, ub, aty()), env, tell, diagnostics);
 
       DEBUG_PRINT("interpret_tell_in fin\n");
       return true;
@@ -302,9 +410,22 @@ namespace lala {
     CUDA NI bool interpret_tell_unary(const F& f, Env& env, tell_type<Alloc2>& tell,
                                       IDiagnostics& diagnostics) const {
       DEBUG_PRINT("interpret_tell_unary\n");
-      auto xi = f.seq(0);
 
-      auto constant = f.seq(1);
+      //we force the constant to the right
+      auto local_f = move_constants_on_rhs(f);
+
+      if (!is_arithmetic_comparison(local_f) || f.sig() == NEQ) {
+        RETURN_INTERPRETATION_ERROR("Octagons only handle <=,>=,<,>,= symbols at the moment.");
+      }
+      auto left_operand = local_f.seq(0);
+      left_operand.type_as(aty());
+      battery::tuple<char, F> xit;
+      auto result = var_with_symbol<diagnose, F>(left_operand, diagnostics, xit);
+      if (!result) {
+        return false;
+      }
+      auto xi = battery::get<1>(xit);
+      auto constant = local_f.seq(1);
 
       AVar avar1;
       if (xi.is(F::LV)) {
@@ -313,47 +434,43 @@ namespace lala {
           RETURN_INTERPRETATION_ERROR("The variable "+ xi +" does not exist.");
         }
         avar1 = var1.value().avar_of(atype).value();
-      } else if (xi.is(F::V)) {
-        avar1 = xi.v();
+        avar1.type_as(aty());
       }
-      if (!constant.is_constant()) {
-        RETURN_INTERPRETATION_ERROR("The right operand of the formula must be a constant.");
+      else if (xi.is(F::V)) {
+        avar1 = xi.v();
+        avar1.type_as(aty());
+      }
+      else {
+        assert(false);
       }
 
       local_cell_type u;
-      auto tmp = F::make_avar(AVar{});
-      switch (f.sig()) {
+      switch (local_f.sig()) {
         case LEQ:
-          if (constant.is(F::Z)) {
-            logic_int k = constant.z() * 2;
-            U::template interpret_tell<diagnose>(F::make_binary(tmp, f.sig(), F::make_z(k)), env, u,
-                                                 diagnostics);
-          } else {
-            logic_real k = battery::make_tuple(battery::get<0>(constant.r()) * 2.0,
-                                               battery::get<1>(constant.r()) * 2.0);
-            U::template interpret_tell<diagnose>(F::make_binary(tmp, f.sig(), F::make_real(k)), env, u,
-                                                 diagnostics);
-          }
-          tell.emplace_back(battery::make_tuple(avar1.vid() * 2, (avar1.vid() * 2) + 1, u));
-          break;
+        case LT:
+          return interpret_tell_x_op_k(battery::get<0>(xit), avar1, local_f.sig(), constant, env, tell, diagnostics);
+        case EQ: {
+          auto geq_formula = F::make_binary(f.seq(0), GEQ, constant, aty());
+          return interpret_tell_x_op_k(battery::get<0>(xit), avar1, LEQ, constant, env, tell, diagnostics) &&
+                 interpret_tell_unary(geq_formula, env, tell, diagnostics);
+        }
         case GEQ:
+        case GT: {
           if (constant.is(F::Z)) {
-            logic_int k = constant.z() * -2;
-            U::template interpret_tell<diagnose>(F::make_binary(tmp, LEQ, F::make_z(k)), env, u,
-                                                 diagnostics);
-          } else {
-            //logic_real k = constant.r()*-2.0;
-            logic_real k = battery::make_tuple(battery::get<0>(constant.r()) * -2.0,
-                                               battery::get<1>(constant.r()) * -2.0);
-            U::template interpret_tell<diagnose>(F::make_binary(tmp, LEQ, F::make_real(k)), env, u,
-                                                 diagnostics);
+            logic_int k = constant.z() * -1;
+            return interpret_tell_x_op_k(battery::get<0>(xit) == '-' ? '+' : '-', avar1, LEQ, F::make_z(k), env, tell,
+                                         diagnostics);
           }
-          tell.emplace_back(battery::make_tuple(avar1.vid() * 2 + 1, avar1.vid() * 2, u));
-          break;
+          else {
+            logic_real k = battery::make_tuple(battery::mul_down(battery::get<0>(constant.r()), -1.0),
+                                               battery::mul_up(battery::get<1>(constant.r()), -1.0));
+            return interpret_tell_x_op_k(battery::get<0>(xit) == '-' ? '+' : '-', avar1, LEQ, F::make_real(k), env,
+                                         tell, diagnostics);
+          }
+        }
         default:
-          RETURN_INTERPRETATION_ERROR("Octagons only handle <= and >= symbols at the moment.");
+          RETURN_INTERPRETATION_ERROR("Octagons only handle <=,>=,<,>,= symbols at the moment.");
       }
-      return true;
     }
 
 
@@ -380,7 +497,7 @@ namespace lala {
     template<bool diagnose = false, class F, class Env, class Alloc2>
     CUDA NI bool interpret_ask(const F& f, const Env& env, ask_type<Alloc2>& ask, IDiagnostics& diagnostics) const {
       /*todo*/
-      return true;
+      return interpret_tell(f, const_cast<Env &>(env), ask, diagnostics);
     }
 
     template<IKind kind, bool diagnose = false, class F, class Env, class I>
@@ -388,7 +505,8 @@ namespace lala {
       DEBUG_PRINT("start interpret octogon\n");
       if constexpr (kind == IKind::TELL) {
         return interpret_tell(f, env, intermediate, diagnostics);
-      } else {
+      }
+      else {
         return interpret_ask(f, env, intermediate, diagnostics);
       }
       DEBUG_PRINT("end interpret octogon\n");
@@ -402,19 +520,13 @@ namespace lala {
       init_size();
       for (int i = 0; i < t.size(); i++) {
         auto el = t[i];
-        auto index_line = battery::get<1>(el);
-        auto index_column = battery::get<0>(el);
+        auto index_line = battery::get<0>(el);
+        auto index_column = battery::get<1>(el);
 
         if (dbm[index_line].empty()) {
           dbm[index_line].resize(nbVars * 2);
         }
         dbm[index_line][index_column].tell(battery::get<2>(el), has_changed);
-
-        // printf("%d %d \n", index_line, index_column);
-        // battery::get<2>(el).print();
-        // printf("\n");
-
-        // print_matrix(dbm);
       }
 
       DEBUG_PRINT("end tell\n");
@@ -446,7 +558,17 @@ namespace lala {
 
     template<class Alloc2>
     CUDA local::BInc ask(const ask_type<Alloc2>& t) const {
-      return false;
+      for (int i = 0; i < t.size(); i++) {
+        auto el = t[i];
+        auto index_line = battery::get<0>(el);
+        auto index_column = battery::get<1>(el);
+        auto value = battery::get<2>(el);
+
+        if (dbm[index_line][index_column] != value) {
+          return false;
+        }
+      }
+      return true;
     }
 
     CUDA size_t num_refinements() const {
@@ -455,23 +577,38 @@ namespace lala {
 
     template<class Mem>
     CUDA void refine(size_t i, BInc<Mem>& has_changed) {
+      //print_matrix(dbm);
       using local_flat = typename U::template flat_type<battery::local_memory>;
+
+      // for(int i=0;i<dbm.size();i++){
+      //   for(int j=0;j<dbm.size();j++){
+      //     for(int k=0;k<dbm.size();k++) {
+      //       dbm[i][j].tell(
+      //       U::template fun<ADD>(
+      //         local_flat(dbm[i][k]),
+      //         local_flat(dbm[k][j])),
+      //       has_changed);
+      //     }
+      //   }
+      // }
+
+
       if (i < floyd_steps) {
         size_t k = dim1(i);
         size_t ii = dim2(i);
         size_t j = dim3(i);
-        dbm[i][j].tell(
+        dbm[ii][j].tell(
           U::template fun<ADD>(
-          local_flat(dbm[ii][k]),
-          local_flat(dbm[k][j])),
+            local_flat(dbm[ii][k]),
+            local_flat(dbm[k][j])),
           has_changed);
-        if(ii == j) {
+        if (ii == j) {
           is_at_top.tell(local::BInc(dbm[ii][j] < 0), has_changed);
         }
       }
       else if (i < tight_steps) {
         size_t index = i % dbm.size();
-        size_t index_bar = i ^ 1;
+        size_t index_bar = index ^ 1;
         auto div2 = local_flat(U::template fun<FDIV>(local_flat(dbm[index][index_bar]), local_flat(2)));
         auto value = U::template fun<MUL>(div2, local_flat(2));
         dbm[index][index_bar].tell(value, has_changed);
@@ -488,6 +625,7 @@ namespace lala {
           local_flat(dbm[index_j_bar][index_j])));
         dbm[index_i][index_j].tell(U::template fun<FDIV>(add, local_flat(2)));
       }
+      //print_matrix(dbm);
     }
 
     /** `true` if the underlying abstract element is top, `false` otherwise. */
@@ -497,7 +635,7 @@ namespace lala {
 
     /** `true` if the underlying abstract element is bot and there is no refinement function, `false` otherwise. */
     CUDA local::BDec is_bot() const {
-      if(is_at_top) {
+      if (is_at_top) {
         return false;
       }
       for (int i = 0; i < dbm.size(); i++) {
@@ -513,8 +651,27 @@ namespace lala {
     }
 
     CUDA universe_type operator[](int x) const {
-      return universe_type(typename universe_type::LB(dbm[x * 2][x * 2 + 1]),
-                           typename universe_type::UB(dbm[x * 2 + 1][x * 2]));
+      using local_flat = typename U::template flat_type<battery::local_memory>;
+      auto result = universe_type(typename universe_type::LB(dbm[x * 2+1][x * 2]),
+                                  typename universe_type::UB(dbm[x * 2][x * 2+1]));
+
+      auto lb = result.lb().value();
+      auto ub = result.ub().value();
+
+      auto div2_lb = local_flat(U::template fun<FDIV>(local_flat(lb), local_flat(2)));
+      auto div2_ub = local_flat(U::template fun<FDIV>(local_flat(ub), local_flat(2)));
+
+
+      if (div2_lb < 0) {
+        div2_lb = U::template fun<MUL>(local_flat(div2_lb), local_flat(-1));
+      }
+
+      if (div2_ub < 0) {
+        div2_ub = U::template fun<MUL>(local_flat(div2_ub), local_flat(-1));
+      }
+
+      return universe_type(typename universe_type::LB(div2_lb),
+                           typename universe_type::UB(div2_ub));
     }
 
     CUDA universe_type project(AVar x) const {
@@ -539,8 +696,8 @@ namespace lala {
       for (int i = 0; i < snap.size(); ++i) {
         for (int j = 0; j < snap[i].size(); ++j) {
           dbm[i][j].dtell(snap[i][j]);
-          if(snap[i][j].ub()<0) {
-            is_at_top.tell(true);
+          if (snap[i][j].value() < 0) {
+            is_at_top.tell(local::BInc(true));
           }
         }
       }
@@ -561,9 +718,74 @@ namespace lala {
       }
     }
 
+
+    CUDA void print() const {
+      print_matrix(dbm);
+    }
+
+
     template<class Env>
     CUDA NI TFormula<typename Env::allocator_type> deinterpret(const Env& env) const {
-      return TFormula<typename Env::allocator_type>::make_false();
+      using F = TFormula<typename Env::allocator_type>;
+      typename F::Sequence seq{env.get_allocator()};
+      using local_flat = typename U::template flat_type<battery::local_memory>;
+
+      if (is_top()) {
+        return TFormula<typename Env::allocator_type>::make_false();
+      }
+
+      for (int i = 0; i < vars(); i++) {
+        AVar v(aty(), i);
+        seq.push_back(F::make_exists(aty(), env.name_of(v), env.sort_of(v)));
+
+        auto p = project(v);
+
+        auto lb = p.lb().value();
+        auto ub = p.ub().value();
+
+
+        auto var = F::make_lvar(aty(), env.name_of(v));
+        seq.push_back(F::make_binary(var, GEQ, F::make_z(lb), aty()));
+        seq.push_back(F::make_binary(var, LEQ, F::make_z(ub), aty()));
+      }
+
+
+      for (int i = 0; i < dbm.size(); i++) {
+        for (int j = 0; j < dbm[i].size(); j++) {
+          if (i != j && !dbm[i][j].is_bot()) {
+            AVar v1(aty(), i % 2 != 0 ? (i - 1) / 2 : i / 2);
+            AVar v2(aty(), j % 2 != 0 ? (j - 1) / 2 : j / 2);
+            if (v1 == v2) {
+              continue;
+            }
+
+            Sig arithmSymb = SUB;
+            if (i % 2 == 0) {
+              arithmSymb = ADD;
+            }
+            auto var1 = F::make_lvar(aty(), env.name_of(v1));
+            auto var2 = F::make_lvar(aty(), env.name_of(v2));
+
+            if (j % 2 != 0) {
+              seq.push_back(F::make_binary(F::make_binary(var2, arithmSymb, var1, aty()), LEQ,
+                                           F::make_z(dbm[i][j]), aty()));
+            }
+            else {
+              seq.push_back(F::make_binary(
+                F::make_binary(F::make_unary(NEG, var2, aty()), arithmSymb, var1, aty()), LEQ,
+                F::make_z(dbm[j][i]), aty()));
+            }
+          }
+        }
+      }
+
+      return F::make_nary(AND, std::move(seq), aty());
+    }
+
+    template<class I, class Env>
+    CUDA NI TFormula<typename Env::allocator_type> deinterpret(const I& intermediate, const Env& env) const {
+      using F = TFormula<typename Env::allocator_type>;
+      return F::make_false();
     }
   };
 }

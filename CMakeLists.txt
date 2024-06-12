@@ -1,14 +1,19 @@
 cmake_minimum_required(VERSION 3.24)
 cmake_policy(SET CMP0135 NEW)
 
-if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES native)
-endif()
-
-project(lala-octagon
-  HOMEPAGE_URL "https://github.com/lattice-land/lala-octagon"
-  LANGUAGES CUDA CXX)
 option(GPU "GPU" ON)
+if(GPU)
+  if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    set(CMAKE_CUDA_ARCHITECTURES native)
+  endif()
+  project(lala-octagon
+    HOMEPAGE_URL "https://github.com/lattice-land/lala-octagon"
+    LANGUAGES CUDA CXX)
+else()
+  project(lala-octagon
+    HOMEPAGE_URL "https://github.com/lattice-land/lala-octagon"
+    LANGUAGES CXX)
+endif()
 option(LOCAL_DEPS "LOCAL_DEPS" OFF)
 option(LALA_OCTAGON_BUILD_TESTS "LALA_OCTAGON_BUILD_TESTS" OFF)
 

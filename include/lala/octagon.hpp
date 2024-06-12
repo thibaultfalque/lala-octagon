@@ -580,17 +580,31 @@ namespace lala {
       //print_matrix(dbm);
       using local_flat = typename U::template flat_type<battery::local_memory>;
 
-      // for(int i=0;i<dbm.size();i++){
-      //   for(int j=0;j<dbm.size();j++){
-      //     for(int k=0;k<dbm.size();k++) {
-      //       dbm[i][j].tell(
+      // for(int k=0;k<dbm.size()/2;k++){
+      //   for(int l=0;l<dbm.size();l++){
+      //     for(int j=0;j<dbm.size();j++) {
+      //       dbm[l][j].tell(
       //       U::template fun<ADD>(
-      //         local_flat(dbm[i][k]),
-      //         local_flat(dbm[k][j])),
+      //         local_flat(dbm[l][k]),
+      //         local_flat(dbm[k][l])),
       //       has_changed);
       //     }
       //   }
+      //
+      //   for(int l=0;l<dbm.size();l++) {
+      //     for(int j=0;j<dbm.size();j++) {
+      //
+      //       size_t index_i_bar = l ^ 1;
+      //       size_t index_j_bar = j ^ 1;
+      //
+      //       auto add = local_flat(U::template fun<ADD>(
+      //         local_flat(dbm[l][index_i_bar]),
+      //         local_flat(dbm[index_j_bar][j])));
+      //       dbm[l][j].tell(U::template fun<FDIV>(add, local_flat(2)),has_changed);
+      //     }
+      //   }
       // }
+
 
 
       if (i < floyd_steps) {
@@ -605,6 +619,11 @@ namespace lala {
         if (ii == j) {
           is_at_top.tell(local::BInc(dbm[ii][j] < 0), has_changed);
         }
+        if(i==floyd_steps-1 && !is_top()) {
+          for(int l=0;l<dbm.size();l++) {
+            dbm[l][l].tell(U(0),has_changed);
+          }
+        }
       }
       else if (i < tight_steps) {
         size_t index = i % dbm.size();
@@ -614,16 +633,16 @@ namespace lala {
         dbm[index][index_bar].tell(value, has_changed);
       }
       else {
-        auto n_2 = dbm.size() * dbm.size();
-        size_t index_i = ((i - tight_steps) % n_2) / dbm.size();
+//        auto n_2 = dbm.size() * dbm.size();
+        size_t index_i = ((i - tight_steps) / dbm.size());
         size_t index_i_bar = index_i ^ 1;
-        size_t index_j = ((i - tight_steps) / n_2) % dbm.size();
+        size_t index_j = ((i - tight_steps) % dbm.size());
         size_t index_j_bar = index_j ^ 1;
 
         auto add = local_flat(U::template fun<ADD>(
           local_flat(dbm[index_i][index_i_bar]),
           local_flat(dbm[index_j_bar][index_j])));
-        dbm[index_i][index_j].tell(U::template fun<FDIV>(add, local_flat(2)));
+        dbm[index_i][index_j].tell(U::template fun<FDIV>(add, local_flat(2)),has_changed);
       }
       //print_matrix(dbm);
     }

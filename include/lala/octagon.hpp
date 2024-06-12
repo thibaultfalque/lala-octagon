@@ -344,8 +344,8 @@ namespace lala {
       if (!constant.is_constant()) {
         RETURN_INTERPRETATION_ERROR("The right operand of the formula must be a constant.");
       }
-      AVar avari = var1.value().avar_of(atype).value();
-      AVar avarj = var2.value().avar_of(atype).value();
+      AVar avari = var1.value().get().avar_of(atype).value();
+      AVar avarj = var2.value().get().avar_of(atype).value();
       local_cell_type u;
 
 
@@ -393,7 +393,7 @@ namespace lala {
       if (!var1.has_value()) {
         RETURN_INTERPRETATION_ERROR("The variable "+ xi +" does not exist.");
       }
-      AVar avar1 = var1.value().avar_of(atype).value();
+      AVar avar1 = var1.value().get().avar_of(atype).value();
       avar1.type_as(aty());
       auto set = domain.s();
       auto lb = battery::get<0>(set[0]);
@@ -433,7 +433,7 @@ namespace lala {
         if (!var1.has_value()) {
           RETURN_INTERPRETATION_ERROR("The variable "+ xi +" does not exist.");
         }
-        avar1 = var1.value().avar_of(atype).value();
+        avar1 = var1.value().get().avar_of(atype).value();
         avar1.type_as(aty());
       }
       else if (xi.is(F::V)) {
@@ -633,7 +633,6 @@ namespace lala {
         dbm[index][index_bar].tell(value, has_changed);
       }
       else {
-//        auto n_2 = dbm.size() * dbm.size();
         size_t index_i = ((i - tight_steps) / dbm.size());
         size_t index_i_bar = index_i ^ 1;
         size_t index_j = ((i - tight_steps) % dbm.size());
